@@ -53,7 +53,18 @@ class Order(object):
         adjustedMakerFillAmount = math.floor( makerFillAmount * ( (1 - fN) / (1 - f)) )
         return (self.getTakerFillAmount(adjustedMakerFillAmount), adjustedMakerFillAmount)
 
-def computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, doRecursive = False):
+class FeePercentage(object):
+    numerator = 0.
+    denominator = 1.
+
+    def __init__(self, numerator, denominator):
+        self.numerator = numerator
+        self.denominator = denominator
+
+def computeForwarderFee(totalTakerFillAmount, feePercentage):
+    return math.floor( (totalTakerFillAmount * feePercentage.numerator) / feePercentage.denominator)
+
+def computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, feePercentage, doRecursive = False):
      # Amount to fill order
     takerFillAmountForOrder = order.getTakerFillAmount(makerFillAmount)
     print "Must spend %.2f ETH on MakerAsset"%takerFillAmountForOrder
@@ -73,10 +84,15 @@ def computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, doRecursive =
         # Do nothing
         print "No Fees to buy."
         
+    # Compute fee
+    totalTakerFillAmount = takerFillAmountForOrder + takerAssetAmountForFeeOrder
+    print "Must spend %.2f ETH to fill order + feeOrder"%totalTakerFillAmount
+    forwarderFee = computeForwarderFee(totalTakerFillAmount, feePercentage)
+    print "Must pay a fee of %.2f ETH to forwarding contract operator"%forwarderFee
 
-    # Print result
-    totalTakerAsset = takerFillAmountForOrder + takerAssetAmountForFeeOrder
-    print "Must send %.2f ETH to forwarding contract"%totalTakerAsset
+    # Compute total amount to send
+    totalAmountToSend = totalTakerFillAmount + forwarderFee
+    print "Must send %.2f ETH to forwarding contract"%totalAmountToSend
 
 
 ############### TESTS ###############
@@ -86,6 +102,7 @@ def simpleTest():
     order = Order(20., 100., 0., 1000.)
     feeOrder = Order(50000., 2000., 0., 190.)
     makerFillAmount = 10.
-    computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount)
+    feePercentage = FeePercentage(4567, 10000)
+    computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, feePercentage)
 
 simpleTest()
