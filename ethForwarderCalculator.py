@@ -28,30 +28,12 @@ class Order(object):
         # Round down because Maker fee rate favors Maker
         return math.floor((makerFillAmount * self.makerFeeAmount) / self.makerAssetAmount)
     
-    def getTakerFillAmountWithFee(self, makerFillAmount):
-        takerFillAmount = self.getTakerFillAmount(makerFillAmount)
-        makerFillAmountRemaining = takerFeePaid = self.getTakerFeeAmount(takerFillAmount)
-        makerAmountFilled = makerFillAmount - makerFillAmountRemaining
-        return (takerFillAmount, makerAmountFilled, makerFillAmountRemaining)
-
-    def getTakerFillAmountWithFeeRecursive(self, makerFillAmount):
-        # NOTE - *Not* current implementation of Forwarding Contract.
-        #        Using this design we recursively fill the same order until we have enough ZRX.
-        #        This function provides an upperbound on ETH required using a geometric series of fills.
-        # Amount of fee paid by taker per unit of taker asset
-        f = float(self.takerFeeAmount) / self.takerAssetAmount
-
-        # Power at which mf^power = 1/m
-        # We want the value of power where mf^power < 1/m
-        # Power must also be integral because the algorithm increments power by 1 on each iteration.
-        # So, round power down to the nearest integer value and then add 1.
-        # This will be the first integer value at which mf^power < 1/m
-        power = math.floor( math.log(1, f) - math.log(makerFillAmount, f) ) + 1
-        
-        # Compute the geometric sum for m + mf + mf^2 + ... mf^(power-1)
-        fN = math.pow(self.takerFeeAmount, power) / math.pow(self.takerAssetAmount, power)
-        adjustedMakerFillAmount = math.floor( makerFillAmount * ( (1 - fN) / (1 - f)) )
-        return (self.getTakerFillAmount(adjustedMakerFillAmount), adjustedMakerFillAmount)
+    def getTakerFillAmountForFeeOrder(self, makerFillAmount):
+        # For each unit of TakerAsset we buy (MakerAsset - TakerFee)
+        adjustedTakerFillAmount = math.ceil( (makerFillAmount * self.takerAssetAmount) / (self.makerAssetAmount - self.takerFeeAmount))
+        # The amount that we buy will be greater than makerFillAmount, since we buy some amount for fees.
+        adjustedMakerFillAmount = self.getMakerFillAmount(adjustedTakerFillAmount)
+        return (adjustedTakerFillAmount, adjustedMakerFillAmount)
 
 class FeePercentage(object):
     numerator = 0.
@@ -64,7 +46,9 @@ class FeePercentage(object):
 def computeForwarderFee(totalTakerFillAmount, feePercentage):
     return math.floor( (totalTakerFillAmount * feePercentage.numerator) / feePercentage.denominator)
 
-def computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, feePercentage, doRecursive = False):
+# Takes 1 regular order (makerAsset != feeAsset) and 1 fee order (makerAsset == feeAsset)
+# to show how computation differs between the two.
+def computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, feePercentage):
      # Amount to fill order
     takerFillAmountForOrder = order.getTakerFillAmount(makerFillAmount)
     print "Must spend %.2f ETH on MakerAsset"%takerFillAmountForOrder
@@ -73,13 +57,9 @@ def computeTotalTakerAssetAmount(order, feeOrder, makerFillAmount, feePercentage
     print "Must pay %.2f ZRX on fees for MakerAsset"%takerFeeAmountForOrder
 
     takerAssetAmountForFeeOrder = 0
-    if takerFeeAmountForOrder > 0 and doRecursive == True:
-        # Amount to fill fee order
-        takerAssetAmountForFeeOrder, adjustedTakerFeeAmountForOrder = feeOrder.getTakerFillAmountWithFeeRecursive(takerFeeAmountForOrder)
-        print "Recursive Strategy: We spend %.2f ETH to buy %.2f ZRX"%(takerAssetAmountForFeeOrder, adjustedTakerFeeAmountForOrder)
-    elif takerFeeAmountForOrder > 0:
-        takerAssetAmountForFeeOrder, takerFeeAmountForOrderFilled, takerFeeAmountForOrderRemaining = feeOrder.getTakerFillAmountWithFee(takerFeeAmountForOrder)
-        print "Spend %.2f ETH to buy %.2f ZRX and will have %.2f ZRX left to buy"%(takerAssetAmountForFeeOrder,takerFeeAmountForOrderFilled,takerFeeAmountForOrderRemaining)
+    if takerFeeAmountForOrder > 0:
+        adjustedTakerFillAmount, adjustedMakerFillAmount = feeOrder.getTakerFillAmountForFeeOrder(takerFeeAmountForOrder)
+        print "Spend %.2f ETH to buy %.2f ZRX"%(adjustedTakerFillAmount,adjustedMakerFillAmount)
     else:
         # Do nothing
         print "No Fees to buy."
